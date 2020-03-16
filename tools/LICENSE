@@ -1,0 +1,11 @@
+BusyBox is licensed under the GNU General Public License version 2, which is often abbreviated as GPLv2.
+Check https://www.busybox.net/license.html for more information.
+
+Info-ZIP is licensed under the Info-ZIP license, which is compatible with the BSD license.
+Check http://www.info-zip.org/pub/infozip/license.html for more information.
+
+Sqlite is in the public domain. The source code and license can be found at https://www.sqlite.org/
+
+Zipalign is subject to the Apache License, Version 2.0 developed and owned by Google Inc.
+
+ZipSigner is authored by osm0sis & topjohnwu @ xda-developers
