@@ -7,7 +7,7 @@
 #
 # Build Date      : Friday March 15 11:36:43 IST 2019
 #
-# Updated on      : Tuesday March 03 20:05:36 IST 2020
+# Updated on      : Monday March 09 20:18:35 IST 2020
 #
 # BiTGApps Author : TheHitMan @ xda-developers
 #
@@ -47,11 +47,6 @@ recovery_cleanup() {
   [ -z $OLD_LD_LIB ] || export LD_LIBRARY_PATH=$OLD_LD_LIB
   [ -z $OLD_LD_PRE ] || export LD_PRELOAD=$OLD_LD_PRE
   [ -z $OLD_LD_CFG ] || export LD_CONFIG_FILE=$OLD_LD_CFG
-}
-
-# selinux status
-selinux_variable() {
-  getenforce >> /cache/bitgapps/selinux.log;
 }
 
 # Only support vendor that is outside the system or symlinked in root
@@ -127,99 +122,31 @@ remove_line() {
   fi;
 }
 
-patch_init_Vendor_PM() {
-  if [ "$android_sdk" = "$supported_sdk_v28" ]; then
-    if [ -f /vendor/etc/init/hw/init.qcom.rc ]; then
-      if [ -n "$(cat /vendor/etc/init/hw/init.qcom.rc | grep init.target.rc)" ]; then
-        if [ -n "$(cat /vendor/etc/init/hw/init.qcom.rc | grep init.doze64_32.rc)" ]; then
-          device_initPatched=true
-          echo "ERROR: Vendor init patched already" >> $BOOT;
-        else
-          device_initPatched=false
-          echo "BOOT: Vendor init patched" >> $BOOT;
-          # Copy init script to tmp
-          cp -f /vendor/etc/init/hw/init.qcom.rc $TMP/init.qcom.rc
-          # Append boot script
-          mkdir $TMP/outdir
-          sed -e "/init.target.rc/a\\import /vendor/etc/init/hw/init.doze64_32.rc" < $TMP/init.qcom.rc >> $TMP/outdir/init.qcom.rc
-          rm -rf $TMP/init.rc
-          # Install modified kernel init
-          rm -rf /vendor/etc/init/hw/init.qcom.rc
-          cp -f $TMP/outdir/init.qcom.rc /vendor/etc/init/hw/init.qcom.rc
-          rm -rf $TMP/outdir
-          chmod 0644 /vendor/etc/init/hw/init.qcom.rc
-          # Install boot script
-          cp -f $TMP/init.doze64_32.rc /vendor/etc/init/hw/init.doze64_32.rc
-          chmod 0644 /vendor/etc/init/hw/init.doze64_32.rc
-          chcon -h u:object_r:system_file:s0 "/vendor/etc/init/hw/init.doze64_32.rc";
-          # Install function script
-          rm -rf $SYSTEM/bin/pm-start.sh
-          rm -rf $SYSTEM/bin/pm-stop.sh
-          cp -f $TMP/pm-start.sh $SYSTEM/bin/pm-start.sh
-          cp -f $TMP/pm-stop.sh $SYSTEM/bin/pm-stop.sh
-          chmod 0755 $SYSTEM/bin/pm-start.sh
-          chmod 0755 $SYSTEM/bin/pm-stop.sh
-          chcon -h u:object_r:system_file:s0 "$SYSTEM/bin/pm-start.sh";
-          chcon -h u:object_r:system_file:s0 "$SYSTEM/bin/pm-stop.sh";
-          cp -f /vendor/etc/init/hw/init.qcom.rc /cache/bitgapps/init.qcom.rc
-        fi;
-      else
-        echo "ERROR: Unable to find 'init' service" >> $BOOT;
-      fi;
-    else
-      echo "ERROR: Unable to find 'vendor' init" >> $BOOT;
-    fi;
-  else
-    echo "ERROR: Unsupported Android SDK version" >> $BOOT;
-  fi;
-}
+# Set path for VACUUM and REINDEX of database files
+DATA="/data/data"
+DATA_DE="data/user_de/0"
 
-patch_init_Vendor_SQLITE() {
-  if [ "$android_sdk" = "$supported_sdk_v29" ] || [ "$android_sdk" = "$supported_sdk_v28" ] || [ "$android_sdk" = "$supported_sdk_v27" ] || [ "$android_sdk" = "$supported_sdk_v25" ];
-  then
-    if [ -f /vendor/etc/init/hw/init.qcom.rc ]; then
-      if [ -n "$(cat /vendor/etc/init/hw/init.qcom.rc | grep init.target.rc)" ]; then
-        if [ -n "$(cat /vendor/etc/init/hw/init.qcom.rc | grep init.sqlite64_32.rc)" ]; then
-          device_initPatched=true
-          echo "ERROR: Vendor init patched already" >> $SQLITE;
-        else
-          device_initPatched=false
-          echo "SQLITE: Vendor init patched" >> $SQLITE;
-          # Copy init script to tmp
-          cp -f /vendor/etc/init/hw/init.qcom.rc $TMP/init.qcom.rc
-          # Append SQLITE script
-          mkdir $TMP/outdir
-          sed -e "/init.target.rc/a\\import /vendor/etc/init/hw/init.sqlite64_32.rc" < $TMP/init.qcom.rc >> $TMP/outdir/init.qcom.rc
-          rm -rf $TMP/init.rc
-          # Install modified kernel init
-          rm -rf /vendor/etc/init/hw/init.qcom.rc
-          cp -f $TMP/outdir/init.qcom.rc /vendor/etc/init/hw/init.qcom.rc
-          rm -rf $TMP/outdir
-          chmod 0644 /vendor/etc/init/hw/init.qcom.rc
-          # Install SQLITE script
-          cp -f $TMP/init.sqlite64_32.rc /vendor/etc/init/hw/init.sqlite64_32.rc
-          chmod 0644 /vendor/etc/init/hw/init.sqlite64_32.rc
-          chcon -h u:object_r:system_file:s0 "/vendor/etc/init/hw/init.sqlite64_32.rc";
-          # Install function script
-          rm -rf $SYSTEM/bin/sqlite64_32.sh
-          rm -rf $SYSTEM/bin/sqlite3
-          cp -f $TMP/sqlite64_32.sh $SYSTEM/bin/sqlite64_32.sh
-          cp -f $TMP/sqlite3 $SYSTEM/bin/sqlite3
-          chmod 0755 $SYSTEM/bin/sqlite64_32.sh
-          chmod 0755 $SYSTEM/bin/sqlite3
-          chcon -h u:object_r:system_file:s0 "$SYSTEM/bin/sqlite64_32.sh";
-          chcon -h u:object_r:system_file:s0 "$SYSTEM/bin/sqlite3";
-          cp -f /vendor/etc/init/hw/init.qcom.rc /cache/bitgapps/init.qcom.rc
-        fi;
-      else
-        echo "ERROR: Unable to find 'init' service" >> $SQLITE;
-      fi;
+# Database optimization using sqlite tool
+sqlite_opt() {
+  for i in `find $DATA $DATA_DE -iname "*.db" 2>/dev/null;`; do
+    # Running VACUUM
+    $SQLITE_TOOL $i 'VACUUM;';
+    resVac=$?
+    if [ $resVac == 0 ]; then
+      resVac="SUCCESS";
     else
-      echo "ERROR: Unable to find 'vendor' init" >> $SQLITE;
+      resVac="ERRCODE-$resVac";
     fi;
-  else
-    echo "ERROR: Unsupported Android SDK version" >> $SQLITE;
-  fi;
+    # Running INDEX
+    $SQLITE_TOOL $i 'VACUUM;';
+    resIndex=$?
+    if [ $resIndex == 0 ]; then
+      resIndex="SUCCESS";
+    else
+      resIndex="ERRCODE-$resIndex";
+    fi;
+    echo "Database $i:  VACUUM=$resVac  REINDEX=$resIndex" >> "$SQLITE_LOG";
+  done
 }
 
 # Install packages in sparse mode
@@ -392,7 +319,8 @@ unpack_zip() {
 }
 
 # Set config file property
-supported_config="$(get_prop "ro.config.setupwizard")";
+supported_setup_config="$(get_prop "ro.config.setupwizard")";
+supported_cts_config="$(get_prop "ro.config.cts")";
 supported_target="true";
 
 # Set privileged app Whitelist property
@@ -445,6 +373,10 @@ on_platform() {
   ANDROID_PLATFORM_ARM64="arm64-v8a";
 }
 
+build_platform() {
+  ANDROID_PLATFORM=""
+}
+
 # Android SDK
 check_sdk() {
   ui_print "Checking Android SDK version";
@@ -474,7 +406,7 @@ check_version() {
 # Android Platform
 check_platform() {
   ui_print "Checking Android platform";
-  for targetarch in $ANDROID_PLATFORM_ARM64; do
+  for targetarch in $ANDROID_PLATFORM; do
     if [ "$device_architecture" = "$targetarch" ]; then
       ui_print "$device_architecture";
       ui_print " ";
@@ -590,7 +522,6 @@ on_mount_failed() {
   cd /cache/bitgapps
   cp -f $TMP/recovery.log /cache/bitgapps/recovery.log 2>/dev/null;
   cp -f /etc/fstab /cache/bitgapps/fstab 2>/dev/null;
-  selinux_variable;
   tar -cz -f "$TMP/bitgapps_debug_failed_logs.tar.gz" *
   cp -f $TMP/bitgapps_debug_failed_logs.tar.gz /sdcard/bitgapps_debug_failed_logs.tar.gz
   # Checkout log path
@@ -604,7 +535,6 @@ on_install_failed() {
   mkdir /cache/bitgapps
   cd /cache/bitgapps
   cp -f $TMP/recovery.log /cache/bitgapps/recovery.log 2>/dev/null;
-  selinux_variable;
   cp -f $SYSTEM/build.prop /cache/bitgapps/build.prop 2>/dev/null;
   if [ "$device_vendorpartition" = "true" ]; then
     cp -f $VENDOR/build.prop /cache/bitgapps/build2.prop 2>/dev/null;
@@ -650,7 +580,6 @@ unmount_all() {
 }
 
 on_installed() {
-  selinux_variable;
   on_install_complete;
   clean_logs;
   cleanup;
@@ -731,7 +660,8 @@ TMP_PERM_ROOT="$UNZIP_DIR/tmp_perm_root";
 LOG="/cache/bitgapps/installation.log";
 config_log="/cache/bitgapps/config-installation.log";
 whitelist="/cache/bitgapps/whitelist.log";
-SQLITE="/cache/bitgapps/sqlite.log";
+SQLITE_LOG="/cache/bitgapps/sqlite.log";
+SQLITE_TOOL="/tmp/sqlite3";
 ZIPALIGN_LOG="/cache/bitgapps/zipalign.log";
 ZIPALIGN_TOOL="/tmp/zipalign";
 ZIPALIGN_OUTFILE="/tmp/out";
@@ -739,11 +669,12 @@ sdk_v29="/cache/bitgapps/sdk_v29.log";
 sdk_v28="/cache/bitgapps/sdk_v28.log";
 sdk_v27="/cache/bitgapps/sdk_v27.log";
 sdk_v25="/cache/bitgapps/sdk_v25.log";
-LINKER="/cache/bitgapps/lib_symlink.log";
-BOOT="/cache/bitgapps/boot.log";
+LINKER="/cache/bitgapps/lib-symlink.log";
 PARTITION="/cache/bitgapps/vendor.log";
 CTS_PATCH="/cache/bitgapps/cts.log";
 CONFIG="/cache/bitgapps/bitgapps-config.log";
+TARGET_SYSTEM="/cache/bitgapps/cts-system.log";
+TARGET_VENDOR="/cache/bitgapps/cts-vendor.log";
 # CTS defaults
 CTS_DEFAULT_SYSTEM_BUILD_FINGERPRINT="ro.build.fingerprint=";
 CTS_DEFAULT_SYSTEM_BUILD_SEC_PATCH="ro.build.version.security_patch=";
@@ -2003,7 +1934,7 @@ get_config() {
 # Unpack config dependent packages
 config_install() {
   if [ "$build_config" = "true" ]; then
-    if [ "$supported_config" = "$supported_target" ]; then
+    if [ "$supported_setup_config" = "$supported_target" ]; then
       unpack_zip_initial;
 
       # Remove SetupWizard components
@@ -2123,7 +2054,7 @@ purge_whitelist_permission() {
     chmod 0644 $SYSTEM/build.prop
     rm -rf /tmp/build.prop
   else
-    echo "ERROR: Unable to find Whitelist property" >> $whitelist;
+    echo "ERROR: Unable to find Whitelist property in 'system'" >> $whitelist;
   fi;
   if [ -f /system_root/system/etc/prop.default ]; then
     if [ -n "$(cat /system_root/system/etc/prop.default | grep control_privapp_permissions)" ]; then
@@ -2136,7 +2067,7 @@ purge_whitelist_permission() {
       ln -sfnv /system_root/system/etc/prop.default /system_root/default.prop
       rm -rf /tmp/prop.default
     else
-      echo "ERROR: Unable to find Whitelist property" >> $whitelist;
+      echo "ERROR: Unable to find Whitelist property in 'system_root'" >> $whitelist;
     fi;
   else
     echo "ERROR: unable to find prop.default" >> $whitelist;
@@ -2149,7 +2080,7 @@ purge_whitelist_permission() {
       chmod 0644 $VENDOR/build.prop
       rm -rf /tmp/build.prop
     else
-      echo "ERROR: Unable to find Whitelist property" >> $whitelist;
+      echo "ERROR: Unable to find Whitelist property in 'vendor'" >> $whitelist;
     fi;
   else
     echo "ERROR: No vendor partition present" >> $whitelist;
@@ -2159,6 +2090,16 @@ purge_whitelist_permission() {
 # Add Whitelist property with flag disable in system
 set_whitelist_permission() {
   insert_line $SYSTEM/build.prop "ro.control_privapp_permissions=disable" after 'net.bt.name=Android' 'ro.control_privapp_permissions=disable';
+}
+
+cts_bakcup_system() {
+  cp -f $SYSTEM/build.prop $SYSTEM/build.prop.bak
+}
+
+cts_bakcup_vendor() {
+  if [ "$device_vendorpartition" = "true" ]; then
+    cp -f $VENDOR/build.prop $VENDOR/build.prop.bak
+  fi;
 }
 
 # Apply safetynet patch
@@ -2172,7 +2113,7 @@ cts_patch_system() {
     rm -rf /tmp/build.prop
     insert_line $SYSTEM/build.prop "$CTS_SYSTEM_BUILD_FINGERPRINT" after 'ro.build.description=' "$CTS_SYSTEM_BUILD_FINGERPRINT";
   else
-    insert_line $SYSTEM/build.prop "$CTS_SYSTEM_BUILD_FINGERPRINT" after 'ro.build.description=' "$CTS_SYSTEM_BUILD_FINGERPRINT";
+    echo "ERROR: Unable to find target property 'ro.build.fingerprint'" >> $TARGET_SYSTEM;
   fi;
   # Build security patch
   if [ -n "$(cat $SYSTEM/build.prop | grep ro.build.version.security_patch)" ]; then
@@ -2183,7 +2124,7 @@ cts_patch_system() {
     rm -rf /tmp/build.prop
     insert_line $SYSTEM/build.prop "$CTS_SYSTEM_BUILD_SEC_PATCH" after 'ro.build.version.release=' "$CTS_SYSTEM_BUILD_SEC_PATCH";
   else
-    insert_line $SYSTEM/build.prop "$CTS_SYSTEM_BUILD_SEC_PATCH" after 'ro.build.version.release=' "$CTS_SYSTEM_BUILD_SEC_PATCH";
+    echo "ERROR: Unable to find target property 'ro.build.version.security_patch'" >> $TARGET_SYSTEM;
   fi;
 }
 
@@ -2199,7 +2140,7 @@ cts_patch_vendor() {
       rm -rf /tmp/build.prop
       insert_line $VENDOR/build.prop "$CTS_VENDOR_BUILD_FINGERPRINT" after 'ro.vendor.build.date.utc=' "$CTS_VENDOR_BUILD_FINGERPRINT";
     else
-      insert_line $VENDOR/build.prop "$CTS_VENDOR_BUILD_FINGERPRINT" after 'ro.vendor.build.date.utc=' "$CTS_VENDOR_BUILD_FINGERPRINT";
+      echo "ERROR: Unable to find target property 'ro.vendor.build.fingerprint'" >> $TARGET_VENDOR;
     fi;
     # Build bootimage
     if [ -n "$(cat $VENDOR/build.prop | grep ro.bootimage.build.fingerprint)" ]; then
@@ -2210,7 +2151,7 @@ cts_patch_vendor() {
       rm -rf /tmp/build.prop
       insert_line $VENDOR/build.prop "$CTS_VENDOR_BUILD_BOOTIMAGE" after 'ro.bootimage.build.date.utc=' "$CTS_VENDOR_BUILD_BOOTIMAGE";
     else
-      insert_line $VENDOR/build.prop "$CTS_VENDOR_BUILD_BOOTIMAGE" after 'ro.vendor.build.fingerprint=' "$CTS_VENDOR_BUILD_BOOTIMAGE";
+      echo "ERROR: Unable to find target property 'ro.bootimage.build.fingerprint'" >> $TARGET_VENDOR;
     fi;
   else
     echo "ERROR: No vendor partition present" >> $PARTITION;
@@ -2239,8 +2180,18 @@ cts_patch() {
       echo "CAF ROM Device : $caf_product" >> $CTS_PATCH;
     fi;
   else
-    cts_patch_system;
-    cts_patch_vendor;
+    if [ "$build_config" = "true" ]; then
+      if [ "$supported_cts_config" = "$supported_target" ]; then
+        cts_bakcup_system;
+        cts_bakcup_vendor;
+        cts_patch_system;
+        cts_patch_vendor;
+      else
+        echo "ERROR: Config property set to 'false'" >> $CTS_PATCH;
+      fi;
+    else
+      echo "ERROR: Config file not found" >> $CTS_PATCH;
+    fi;
   fi;
 }
 
@@ -2264,6 +2215,7 @@ function pre_install() {
   logd;
   on_sdk;
   on_platform;
+  build_platform;
   early_mount;
   set_mount;
   mount_part;
@@ -2278,8 +2230,6 @@ function pre_install() {
   check_version;
   on_platform_check;
   check_platform;
-  patch_init_Vendor_PM;
-  patch_init_Vendor_SQLITE;
 }
 pre_install;
 
@@ -2322,6 +2272,7 @@ function post_install() {
   on_product_check;
   cts_patch;
   sdk_fix;
+  sqlite_opt;
   on_installed;
   recovery_cleanup;
 }
