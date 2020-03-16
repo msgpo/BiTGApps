@@ -1,0 +1,27 @@
+
+
+	List of packages supported by BiTGApps
+	
+This list is unified across supported Android Versions
+
+	• Facelock
+	• GoogleBackupTransport
+	• GoogleRestore
+	• GoogleSetupWizard
+	• GoogleLoginService
+	• GoogleCalendarSyncAdapter
+	• GoogleContactsSyncAdapter
+	• GoogleExtShared
+	• MarkupGoogle
+	• SoundPickerPrebuilt
+	• CarrierSetup
+	• ConfigUpdater
+	• GmsCoreSetupPrebuilt
+	• GoogleExtServices
+	• GoogleLoginService
+	• GoogleServicesFramework
+	• Phonesky
+	• PrebuiltGmsCore
+	• GoogleDialer
+	• GoogleMaps
+	• GoogleMediaEffects
