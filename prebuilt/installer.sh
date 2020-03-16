@@ -7,7 +7,7 @@
 #
 # Build Date      : Friday March 15 11:36:43 IST 2019
 #
-# Updated on      : Monday March 09 20:18:35 IST 2020
+# Updated on      : Monday March 16 14:27:38 IST 2020
 #
 # BiTGApps Author : TheHitMan @ xda-developers
 #
@@ -44,9 +44,19 @@ recovery_actions() {
 
 # Restore predefined environmental variable
 recovery_cleanup() {
-  [ -z $OLD_LD_LIB ] || export LD_LIBRARY_PATH=$OLD_LD_LIB
-  [ -z $OLD_LD_PRE ] || export LD_PRELOAD=$OLD_LD_PRE
-  [ -z $OLD_LD_CFG ] || export LD_CONFIG_FILE=$OLD_LD_CFG
+  unset -f getprop;
+  test "$OLD_LD_LIB" && export LD_LIBRARY_PATH=$OLD_LD_PATH;
+  test "$OLD_LD_PRE" && export LD_PRELOAD=$OLD_LD_PRE;
+  test "$OLD_LD_CFG" && export LD_CONFIG_FILE=$OLD_LD_CFG;
+}
+
+# Delete listed packages permissions
+clean_inst() {
+  # Did this 6.0+ system already boot and generated runtime permissions
+  if [ -f /data/system/users/0/runtime-permissions.xml ]; then
+    # Purge the runtime permissions to prevent issues if flashing GApps for the first time on a dirty install
+    rm -rf /data/system/users/*/runtime-permissions.xml
+  fi;
 }
 
 # Only support vendor that is outside the system or symlinked in root
@@ -265,18 +275,6 @@ set_sparse() {
     chmod 0644 $SYSTEM/etc/g.prop
   }
 
-  send_sparse_11() {
-    file_list="$(find "$TMP_ADDON/" -mindepth 1 -type f | cut -d/ -f5-)"
-    dir_list="$(find "$TMP_ADDON/" -mindepth 1 -type d | cut -d/ -f5-)"
-    for file in $file_list; do
-        install -D "$TMP_ADDON/${file}" "$SYSTEM_ADDOND/${file}"
-        chmod 0644 "$SYSTEM_ADDOND/${file}";
-    done
-    for dir in $dir_list; do
-        chmod 0755 "$SYSTEM_ADDOND/${dir}";
-    done
-  }
-
   # execute sparse functions
   exec_sparse_format() {
     send_sparse_1;
@@ -291,6 +289,23 @@ set_sparse() {
     send_sparse_10;
   }
   exec_sparse_format;
+}
+
+# Function 'send_sparse_11()' must be in a separate call function
+set_sparse_backup() {
+  # Do not merge 'send_sparse_11()' function in 'set_sparse()' function
+  send_sparse_11() {
+    file_list="$(find "$TMP_ADDON/" -mindepth 1 -type f | cut -d/ -f5-)"
+    dir_list="$(find "$TMP_ADDON/" -mindepth 1 -type d | cut -d/ -f5-)"
+    for file in $file_list; do
+        install -D "$TMP_ADDON/${file}" "$SYSTEM_ADDOND/${file}"
+        chmod 0755 "$SYSTEM_ADDOND/${file}";
+    done
+    for dir in $dir_list; do
+        chmod 0755 "$SYSTEM_ADDOND/${dir}";
+    done
+  }
+  send_sparse_11;
 }
 
 # Function 'send_sparse_12()' must be in a separate call function
@@ -346,11 +361,6 @@ on_version_check() {
 on_product_check() {
   android_product="$(get_prop "ro.product.system.brand")";
   supported_product="samsung";
-}
-
-# Set CAF ROM property
-on_caf_check () {
-  caf_product="$(get_prop "ro.reloaded.device")";
 }
 
 # Set platform check property
@@ -442,6 +452,7 @@ early_mount() {
 
 # Mount partitions - RO
 mount_part() {
+  mount -o bind /dev/urandom /dev/random
   if ! is_mounted /data; then
     mount /data
   fi;
@@ -577,6 +588,7 @@ unmount_all() {
     fi;
     umount $VENDOR
   fi;
+  umount /dev/random
 }
 
 on_installed() {
@@ -659,6 +671,7 @@ TMP_PERM_ROOT="$UNZIP_DIR/tmp_perm_root";
 # Set logging
 LOG="/cache/bitgapps/installation.log";
 config_log="/cache/bitgapps/config-installation.log";
+restore="/cache/bitgapps/backup-script.log";
 whitelist="/cache/bitgapps/whitelist.log";
 SQLITE_LOG="/cache/bitgapps/sqlite.log";
 SQLITE_TOOL="/tmp/sqlite3";
@@ -677,12 +690,10 @@ TARGET_SYSTEM="/cache/bitgapps/cts-system.log";
 TARGET_VENDOR="/cache/bitgapps/cts-vendor.log";
 # CTS defaults
 CTS_DEFAULT_SYSTEM_BUILD_FINGERPRINT="ro.build.fingerprint=";
-CTS_DEFAULT_SYSTEM_BUILD_SEC_PATCH="ro.build.version.security_patch=";
 CTS_DEFAULT_VENDOR_BUILD_FINGERPRINT="ro.vendor.build.fingerprint=";
 CTS_DEFAULT_VENDOR_BUILD_BOOTIMAGE="ro.bootimage.build.fingerprint=";
 # CTS patch
 CTS_SYSTEM_BUILD_FINGERPRINT="ro.build.fingerprint=google/walleye/walleye:10/QQ1A.200205.002/6084386:user/release-keys";
-CTS_SYSTEM_BUILD_SEC_PATCH="ro.build.version.security_patch=2020-02-05";
 CTS_VENDOR_BUILD_FINGERPRINT="ro.vendor.build.fingerprint=google/walleye/walleye:10/QQ1A.200205.002/6084386:user/release-keys";
 CTS_VENDOR_BUILD_BOOTIMAGE="ro.bootimage.build.fingerprint=google/walleye/walleye:10/QQ1A.200205.002/6084386:user/release-keys";
 
@@ -797,6 +808,7 @@ pre_installed_v29() {
     rm -rf $SYSTEM_ETC_PERM/privapp-permissions-google.xml
     rm -rf $SYSTEM_ETC_PERM/split-permissions-google.xml
     rm -rf $SYSTEM_ETC_PREF/preferred-apps
+    rm -rf $SYSTEM_ADDOND/90bit_gapps.sh
     rm -rf $SYSTEM/etc/g.prop
   fi;
 }
@@ -839,6 +851,7 @@ pre_installed_v28() {
     rm -rf $SYSTEM_ETC_PERM/com.google.android.media.effects.xml
     rm -rf $SYSTEM_ETC_PERM/privapp-permissions-google.xml
     rm -rf $SYSTEM_ETC_PREF/preferred-apps
+    rm -rf $SYSTEM_ADDOND/90bit_gapps.sh
     rm -rf $SYSTEM/etc/g.prop
   fi;
 }
@@ -877,6 +890,7 @@ pre_installed_v27() {
     rm -rf $SYSTEM_ETC_PERM/com.google.android.media.effects.xml
     rm -rf $SYSTEM_ETC_PERM/privapp-permissions-google.xml
     rm -rf $SYSTEM_ETC_PREF/preferred-apps
+    rm -rf $SYSTEM_ADDOND/90bit_gapps.sh
     rm -rf $SYSTEM/etc/g.prop
   fi;
 }
@@ -913,6 +927,7 @@ pre_installed_v25() {
     rm -rf $SYSTEM_ETC_PERM/com.google.android.maps.xml
     rm -rf $SYSTEM_ETC_PERM/com.google.android.media.effects.xml
     rm -rf $SYSTEM_ETC_PREF/preferred-apps
+    rm -rf $SYSTEM_ADDOND/90bit_gapps.sh
     rm -rf $SYSTEM/etc/g.prop
   fi;
 }
@@ -1909,6 +1924,19 @@ sdk_v25_install() {
   fi;
 }
 
+# Dirty flash script
+backup_script() {
+  ZIP="zip/sys_addon.tar.xz"
+  unpack_zip;
+  extract_backup_script() {
+    tar tvf $ZIP_FILE/sys_addon.tar.xz >> $restore;
+    tar -xf $ZIP_FILE/sys_addon.tar.xz -C $TMP_ADDON;
+  }
+  extract_backup_script;
+  set_sparse_backup;
+  chcon -h u:object_r:system_file:s0 "$SYSTEM_ADDOND/90bit_gapps.sh";
+}
+
 # Set config dependent packages
 ZIP_INITIAL="
   zip/core/priv_app_GoogleBackupTransport.tar.xz
@@ -2048,37 +2076,50 @@ set_assistant() {
 # Remove Privileged App Whitelist property with flag enforce
 purge_whitelist_permission() {
   if [ -n "$(cat $SYSTEM/build.prop | grep control_privapp_permissions)" ]; then
-    grep -v "$PROPFLAG" $SYSTEM/build.prop > /tmp/build.prop
+    grep -v "$PROPFLAG" $SYSTEM/build.prop > $TMP/build.prop
     rm -rf $SYSTEM/build.prop
-    cp -f /tmp/build.prop $SYSTEM/build.prop
+    cp -f $TMP/build.prop $SYSTEM/build.prop
     chmod 0644 $SYSTEM/build.prop
-    rm -rf /tmp/build.prop
+    rm -rf $TMP/build.prop
   else
     echo "ERROR: Unable to find Whitelist property in 'system'" >> $whitelist;
   fi;
+  if [ -f "$SYSTEM/product/build.prop" ]; then
+    if [ -n "$(cat $SYSTEM/product/build.prop | grep control_privapp_permissions)" ]; then
+      mkdir $TMP/product
+      grep -v "$PROPFLAG" $SYSTEM/product/build.prop > $TMP/product/build.prop
+      rm -rf $SYSTEM/product/build.prop
+      cp -f $TMP/product/build.prop $SYSTEM/product/build.prop
+      chmod 0644 $SYSTEM/product/build.prop
+      rm -rf $TMP/product/build.prop
+    else
+      echo "ERROR: Unable to find Whitelist property in 'Product'" >> $whitelist;
+    fi;
+  else
+    echo "ERROR: unable to find product 'build.prop'" >> $whitelist;
+  fi;
   if [ -f /system_root/system/etc/prop.default ]; then
     if [ -n "$(cat /system_root/system/etc/prop.default | grep control_privapp_permissions)" ]; then
-      echo "system_root: prop.default present in device" >> $whitelist
-      grep -v "$PROPFLAG" /system_root/system/etc/prop.default > /tmp/prop.default
+      grep -v "$PROPFLAG" /system_root/system/etc/prop.default > $TMP/prop.default
       rm -rf /system_root/system/etc/prop.default
       rm -rf /system_root/default.prop
-      cp -f /tmp/prop.default /system_root/system/etc/prop.default
+      cp -f $TMP/prop.default /system_root/system/etc/prop.default
       chmod 0644 /system_root/system/etc/prop.default
       ln -sfnv /system_root/system/etc/prop.default /system_root/default.prop
-      rm -rf /tmp/prop.default
+      rm -rf $TMP/prop.default
     else
       echo "ERROR: Unable to find Whitelist property in 'system_root'" >> $whitelist;
     fi;
   else
-    echo "ERROR: unable to find prop.default" >> $whitelist;
+    echo "ERROR: unable to find 'prop.default'" >> $whitelist;
   fi;
   if [ "$device_vendorpartition" = "true" ]; then
     if [ -n "$(cat $VENDOR/build.prop | grep control_privapp_permissions)" ]; then
-      grep -v "$PROPFLAG" $VENDOR/build.prop > /tmp/build.prop
+      grep -v "$PROPFLAG" $VENDOR/build.prop > $TMP/build.prop
       rm -rf $VENDOR/build.prop
-      cp -f /tmp/build.prop $VENDOR/build.prop
+      cp -f $TMP/build.prop $VENDOR/build.prop
       chmod 0644 $VENDOR/build.prop
-      rm -rf /tmp/build.prop
+      rm -rf $TMP/build.prop
     else
       echo "ERROR: Unable to find Whitelist property in 'vendor'" >> $whitelist;
     fi;
@@ -2094,11 +2135,13 @@ set_whitelist_permission() {
 
 cts_bakcup_system() {
   cp -f $SYSTEM/build.prop $SYSTEM/build.prop.bak
+  cp -f $SYSTEM/build.prop.bak /cache/bitgapps/build.prop.bak
 }
 
 cts_bakcup_vendor() {
   if [ "$device_vendorpartition" = "true" ]; then
-    cp -f $VENDOR/build.prop $VENDOR/build.prop.bak
+    cp -f $VENDOR/build.prop $VENDOR/build2.prop.bak
+    cp -f $VENDOR/build2.prop.bak /cache/bitgapps/build2.prop.bak
   fi;
 }
 
@@ -2106,25 +2149,14 @@ cts_bakcup_vendor() {
 cts_patch_system() {
   # Build fingerprint
   if [ -n "$(cat $SYSTEM/build.prop | grep ro.build.fingerprint)" ]; then
-    grep -v "$CTS_DEFAULT_SYSTEM_BUILD_FINGERPRINT" $SYSTEM/build.prop > /tmp/build.prop
+    grep -v "$CTS_DEFAULT_SYSTEM_BUILD_FINGERPRINT" $SYSTEM/build.prop > $TMP/build.prop
     rm -rf $SYSTEM/build.prop
-    cp -f /tmp/build.prop $SYSTEM/build.prop
+    cp -f $TMP/build.prop $SYSTEM/build.prop
     chmod 0644 $SYSTEM/build.prop
-    rm -rf /tmp/build.prop
+    rm -rf $TMP/build.prop
     insert_line $SYSTEM/build.prop "$CTS_SYSTEM_BUILD_FINGERPRINT" after 'ro.build.description=' "$CTS_SYSTEM_BUILD_FINGERPRINT";
   else
     echo "ERROR: Unable to find target property 'ro.build.fingerprint'" >> $TARGET_SYSTEM;
-  fi;
-  # Build security patch
-  if [ -n "$(cat $SYSTEM/build.prop | grep ro.build.version.security_patch)" ]; then
-    grep -v "$CTS_DEFAULT_SYSTEM_BUILD_SEC_PATCH" $SYSTEM/build.prop > /tmp/build.prop
-    rm -rf $SYSTEM/build.prop
-    cp -f /tmp/build.prop $SYSTEM/build.prop
-    chmod 0644 $SYSTEM/build.prop
-    rm -rf /tmp/build.prop
-    insert_line $SYSTEM/build.prop "$CTS_SYSTEM_BUILD_SEC_PATCH" after 'ro.build.version.release=' "$CTS_SYSTEM_BUILD_SEC_PATCH";
-  else
-    echo "ERROR: Unable to find target property 'ro.build.version.security_patch'" >> $TARGET_SYSTEM;
   fi;
 }
 
@@ -2133,22 +2165,22 @@ cts_patch_vendor() {
   if [ "$device_vendorpartition" = "true" ]; then
     # Build fingerprint
     if [ -n "$(cat $VENDOR/build.prop | grep ro.vendor.build.fingerprint)" ]; then
-      grep -v "$CTS_DEFAULT_VENDOR_BUILD_FINGERPRINT" $VENDOR/build.prop > /tmp/build.prop
+      grep -v "$CTS_DEFAULT_VENDOR_BUILD_FINGERPRINT" $VENDOR/build.prop > $TMP/build.prop
       rm -rf $VENDOR/build.prop
-      cp -f /tmp/build.prop $VENDOR/build.prop
+      cp -f $TMP/build.prop $VENDOR/build.prop
       chmod 0644 $VENDOR/build.prop
-      rm -rf /tmp/build.prop
+      rm -rf $TMP/build.prop
       insert_line $VENDOR/build.prop "$CTS_VENDOR_BUILD_FINGERPRINT" after 'ro.vendor.build.date.utc=' "$CTS_VENDOR_BUILD_FINGERPRINT";
     else
       echo "ERROR: Unable to find target property 'ro.vendor.build.fingerprint'" >> $TARGET_VENDOR;
     fi;
     # Build bootimage
     if [ -n "$(cat $VENDOR/build.prop | grep ro.bootimage.build.fingerprint)" ]; then
-      grep -v "$CTS_DEFAULT_VENDOR_BUILD_BOOTIMAGE" $VENDOR/build.prop > /tmp/build.prop
+      grep -v "$CTS_DEFAULT_VENDOR_BUILD_BOOTIMAGE" $VENDOR/build.prop > $TMP/build.prop
       rm -rf $VENDOR/build.prop
-      cp -f /tmp/build.prop $VENDOR/build.prop
+      cp -f $TMP/build.prop $VENDOR/build.prop
       chmod 0644 $VENDOR/build.prop
-      rm -rf /tmp/build.prop
+      rm -rf $TMP/build.prop
       insert_line $VENDOR/build.prop "$CTS_VENDOR_BUILD_BOOTIMAGE" after 'ro.bootimage.build.date.utc=' "$CTS_VENDOR_BUILD_BOOTIMAGE";
     else
       echo "ERROR: Unable to find target property 'ro.bootimage.build.fingerprint'" >> $TARGET_VENDOR;
@@ -2158,27 +2190,17 @@ cts_patch_vendor() {
   fi;
 }
 
-# Disable Privileged permission patch function for CAF based ROMs
+# Apply Privileged permission patch
 whitelist_patch() {
-  if [ -n "$(cat $SYSTEM/build.prop | grep ro.reloaded.device)" ]; then
-    echo "Privileged Permission Patch disabled for CAF based ROM" >> $whitelist;
-    echo "CAF ROM Device : $caf_product" >> $whitelist;
-  else
-    purge_whitelist_permission;
-    set_whitelist_permission;
-  fi;
+  purge_whitelist_permission;
+  set_whitelist_permission;
 }
 
-# Disable CTS patch function for Samsung devices and CAF based ROMs
+# Apply CTS patch function
 cts_patch() {
-  if [ "$android_product" = "$supported_product" ] || [ -n "$(cat $SYSTEM/build.prop | grep ro.reloaded.device)" ]; then
-    if [ "$android_product" = "$supported_product" ]; then
-      echo "CTS Patch disabled for Product : $android_product" >> $CTS_PATCH;
-    fi;
-    if [ -n "$(cat $SYSTEM/build.prop | grep ro.reloaded.device)" ]; then
-      echo "CTS Patch disabled for CAF based ROM" >> $CTS_PATCH;
-      echo "CAF ROM Device : $caf_product" >> $CTS_PATCH;
-    fi;
+  # Guard CTS function for samsung device
+  if [ "$android_product" = "$supported_product" ]; then
+    echo "CTS Patch disabled for Product : $android_product" >> $CTS_PATCH;
   else
     if [ "$build_config" = "true" ]; then
       if [ "$supported_cts_config" = "$supported_target" ]; then
@@ -2199,6 +2221,12 @@ cts_patch() {
 sdk_fix() {
   if [ "$android_sdk" -ge "26" ]; then # Android 8.0+ uses 0600 for its permission on build.prop
     chmod 0600 "$SYSTEM/build.prop"
+    if [ -f /system_root/system/etc/prop.default ]; then
+      chmod 0600 "/system_root/system/etc/prop.default"
+    fi;
+    if [ -f "$SYSTEM/product/build.prop" ]; then
+      chmod 0600 "$SYSTEM/product/build.prop"
+    fi;
     if [ "$device_vendorpartition" = "true" ]; then
       chmod 0600 "$VENDOR/build.prop"
     fi;
@@ -2230,6 +2258,7 @@ function pre_install() {
   check_version;
   on_platform_check;
   check_platform;
+  clean_inst;
 }
 pre_install;
 
@@ -2272,6 +2301,7 @@ function post_install() {
   on_product_check;
   cts_patch;
   sdk_fix;
+  backup_script;
   sqlite_opt;
   on_installed;
   recovery_cleanup;
