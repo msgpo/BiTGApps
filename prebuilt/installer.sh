@@ -439,7 +439,67 @@ set_mount() {
   fi;
 }
 
+setup_mountpoint() {
+  test -L $1 && mv -f $1 ${1}_link
+  if [ ! -d $1 ]; then
+    rm -f $1
+    mkdir $1
+  fi
+}
+
+mount_apex() {
+  test -d /system/apex || return 1
+  local apex dest loop minorx num
+  setup_mountpoint /apex
+  test -e /dev/block/loop1 && minorx=$(ls -l /dev/block/loop1 | awk '{ print $6 }') || minorx=1
+  num=0
+  for apex in /system/apex/*; do
+    dest=/apex/$(basename $apex .apex)
+    test "$dest" == /apex/com.android.runtime.release && dest=/apex/com.android.runtime
+    mkdir -p $dest
+    case $apex in
+      *.apex)
+        unzip -qo $apex apex_payload.img -d /apex
+        mv -f /apex/apex_payload.img $dest.img
+        mount -t ext4 -o ro,noatime $dest.img $dest 2>/dev/null
+        if [ $? != 0 ]; then
+          while [ $num -lt 64 ]; do
+            loop=/dev/block/loop$num
+            (mknod $loop b 7 $((num * minorx))
+            losetup $loop $dest.img) 2>/dev/null
+            num=$((num + 1))
+            losetup $loop | grep -q $dest.img && break
+          done
+          mount -t ext4 -o ro,loop,noatime $loop $dest
+          if [ $? != 0 ]; then
+            losetup -d $loop 2>/dev/null
+          fi
+        fi
+      ;;
+      *) mount -o bind $apex $dest;;
+    esac
+  done
+  export ANDROID_RUNTIME_ROOT=/apex/com.android.runtime
+  export ANDROID_TZDATA_ROOT=/apex/com.android.tzdata
+  export BOOTCLASSPATH=/apex/com.android.runtime/javalib/core-oj.jar:/apex/com.android.runtime/javalib/core-libart.jar:/apex/com.android.runtime/javalib/okhttp.jar:/apex/com.android.runtime/javalib/bouncycastle.jar:/apex/com.android.runtime/javalib/apache-xml.jar:/system/framework/framework.jar:/system/framework/ext.jar:/system/framework/telephony-common.jar:/system/framework/voip-common.jar:/system/framework/ims-common.jar:/system/framework/android.test.base.jar:/apex/com.android.conscrypt/javalib/conscrypt.jar:/apex/com.android.media/javalib/updatable-media.jar
+}
+
+umount_apex() {
+  test -d /apex || return 1
+  local dest loop
+  for dest in $(find /apex -type d -mindepth 1 -maxdepth 1); do
+    if [ -f $dest.img ]; then
+      loop=$(mount | grep $dest | cut -d" " -f1)
+    fi
+    (umount -l $dest
+    losetup -d $loop) 2>/dev/null
+  done
+  rm -rf /apex 2>/dev/null
+  unset ANDROID_RUNTIME_ROOT ANDROID_TZDATA_ROOT BOOTCLASSPATH
+}
+
 early_mount() {
+  umount_apex;
   umount /data 2>/dev/null;
   if [ -d /system ] && [ -n "$(cat /etc/fstab | grep /system)" ]; then
     umount /system 2>/dev/null;
@@ -477,6 +537,7 @@ remount_part() {
   mount -o rw,remount -t auto $SYSTEM_MOUNT
   mount -o rw,remount -t auto /vendor
   mount -o rw,remount -t auto /cache
+  mount_apex;
 }
 
 # Set installation layout
@@ -577,6 +638,7 @@ on_install_complete() {
 
 unmount_all() {
   ui_print " ";
+  umount_apex;
   if [ "$device_abpartition" = "true" ]; then
     mount -o ro $SYSTEM_MOUNT
   else
