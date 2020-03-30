@@ -8,7 +8,7 @@
 #
 # Build Date      : Friday March 15 11:36:43 IST 2019
 #
-# Updated on      : Monday March 16 14:27:38 IST 2020
+# Updated on      : Monday March 30 14:42:24 IST 2020
 #
 # BiTGApps Author : TheHitMan @ xda-developers
 #
@@ -54,6 +54,8 @@ fi;
 export ZIPFILE="$3"
 export OUTFD="$OUTFD"
 export TMP="/tmp"
+export INTERNAL="/sdcard"
+export EXTERNAL="/sdcard1"
 
 ui_print() {
   echo -n -e "ui_print $1\n" >> /proc/self/fd/$OUTFD
@@ -64,7 +66,7 @@ ui_print() {
 bb="$TMP/busybox-arm"
 l="$TMP/bin"
 
-for f in busybox-arm g.prop installer.sh sqlite3 zipalign; do
+for f in busybox-arm g.prop installer.sh pm.sh sqlite3 zipalign; do
   unzip -o "$ZIPFILE" "$f" -d "$TMP";
 done
 

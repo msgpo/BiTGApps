@@ -7,7 +7,7 @@
 #
 # Build Date      : Friday March 15 11:36:43 IST 2019
 #
-# Updated on      : Monday March 16 14:27:38 IST 2020
+# Updated on      : Monday March 30 14:42:24 IST 2020
 #
 # BiTGApps Author : TheHitMan @ xda-developers
 #
@@ -50,12 +50,24 @@ recovery_cleanup() {
   test "$OLD_LD_CFG" && export LD_CONFIG_FILE=$OLD_LD_CFG;
 }
 
+# Change SELinux status to permissive
+selinux() {
+  setenforce 0;
+}
+
 # Delete listed packages permissions
 clean_inst() {
   # Did this 6.0+ system already boot and generated runtime permissions
-  if [ -f /data/system/users/0/runtime-permissions.xml ]; then
-    # Purge the runtime permissions to prevent issues if flashing GApps for the first time on a dirty install
-    rm -rf /data/system/users/*/runtime-permissions.xml
+  if [ -e /data/system/users/0/runtime-permissions.xml ]; then
+    # Check if permissions were granted to Google Playstore, this permissions should always be set in the file if GApps were installed before
+    if ! grep -q "com.android.vending" /data/system/users/*/runtime-permissions.xml; then
+      # Purge the runtime permissions to prevent issues if flashing GApps for the first time on a dirty install
+      rm -rf /data/system/users/*/runtime-permissions.xml
+    fi;
+    if ! grep -q "com.google.android.setupwizard" /data/system/users/*/runtime-permissions.xml; then
+      # Purge the runtime permissions to prevent issues if flashing GApps for the first time on a dirty install
+      rm -rf /data/system/users/*/runtime-permissions.xml
+    fi;
   fi;
 }
 
@@ -71,10 +83,10 @@ vendor_fallback() {
 
 is_mounted() { mount | grep -q " $1 "; }
 
-CONFIG_PROPFILE="/sdcard/bitgapps-config.prop";
-
 profile() {
   BUILD_PROPFILE="$SYSTEM/build.prop";
+  SETUP_PROPFILE="$INTERNAL/setup-config.prop";
+  CTS_PROPFILE="$INTERNAL/cts-config.prop";
 }
 
 get_file_prop() {
@@ -83,7 +95,7 @@ get_file_prop() {
 
 get_prop() {
   #check known .prop files using get_file_prop
-  for f in $BUILD_PROPFILE $CONFIG_PROPFILE; do
+  for f in $BUILD_PROPFILE $SETUP_PROPFILE $CTS_PROPFILE; do
     if [ -e "$f" ]; then
       prop="$(get_file_prop "$f" "$1")"
       if [ -n "$prop" ]; then
@@ -148,7 +160,7 @@ sqlite_opt() {
       resVac="ERRCODE-$resVac";
     fi;
     # Running INDEX
-    $SQLITE_TOOL $i 'VACUUM;';
+    $SQLITE_TOOL $i 'REINDEX;';
     resIndex=$?
     if [ $resIndex == 0 ]; then
       resIndex="SUCCESS";
@@ -334,20 +346,26 @@ unpack_zip() {
 }
 
 # Set config file property
-supported_setup_config="$(get_prop "ro.config.setupwizard")";
-supported_cts_config="$(get_prop "ro.config.cts")";
-supported_target="true";
+on_config_check() {
+  supported_setup_config="$(get_prop "ro.config.setupwizard")";
+  supported_cts_config="$(get_prop "ro.config.cts")";
+  supported_target="true";
+}
 
 # Set privileged app Whitelist property
-android_flag="$(get_prop "ro.control_privapp_permissions")";
-supported_flag_enforce="enforce";
-supported_flag_disable="disable";
-supported_flag_log="log";
-PROPFLAG="ro.control_privapp_permissions";
+on_whitelist_check() {
+  android_flag="$(get_prop "ro.control_privapp_permissions")";
+  supported_flag_enforce="enforce";
+  supported_flag_disable="disable";
+  supported_flag_log="log";
+  PROPFLAG="ro.control_privapp_permissions";
+}
 
 # Set partition and boot slot property
-system_as_root=`getprop ro.build.system_root_image`
-active_slot=`getprop ro.boot.slot_suffix`
+on_partition_check() {
+  system_as_root=`getprop ro.build.system_root_image`
+  active_slot=`getprop ro.boot.slot_suffix`
+}
 
 # Set version check property
 on_version_check() {
@@ -448,12 +466,18 @@ setup_mountpoint() {
 }
 
 mount_apex() {
-  test -d /system/apex || return 1
+  if [ -d /system_root/system ] && [ -n "$(cat /etc/fstab | grep /system_root)" ];
+  then
+    SYSTEM=/system_root/system
+  else
+    SYSTEM=/system
+  fi;
+  test -d $SYSTEM/apex || return 1
   local apex dest loop minorx num
   setup_mountpoint /apex
   test -e /dev/block/loop1 && minorx=$(ls -l /dev/block/loop1 | awk '{ print $6 }') || minorx=1
   num=0
-  for apex in /system/apex/*; do
+  for apex in $SYSTEM/apex/*; do
     dest=/apex/$(basename $apex .apex)
     test "$dest" == /apex/com.android.runtime.release && dest=/apex/com.android.runtime
     mkdir -p $dest
@@ -542,7 +566,7 @@ remount_part() {
 
 # Set installation layout
 system_layout() {
-  if [ -f /system_root/system/build.prop ];
+  if [ -f /system_root/system/build.prop ] && [ -n "$(cat /etc/fstab | grep /system_root)" ];
   then
     SYSTEM=/system_root/system
   else
@@ -578,8 +602,20 @@ mount_stat() {
 }
 
 cleanup() {
-  rm -rf /tmp/unzip
-  rm -rf /tmp/zip
+  rm -rf $TMP/bin
+  rm -rf $TMP/out
+  rm -rf $TMP/unzip
+  rm -rf $TMP/zip
+  rm -rf $TMP/bitgapps_debug_complete_logs.tar.gz
+  rm -rf $TMP/bitgapps_debug_failed_logs.tar.gz
+  rm -rf $TMP/busybox-arm
+  rm -rf $TMP/g.prop
+  rm -rf $TMP/installer.sh
+  rm -rf $TMP/pm.sh
+  rm -rf $TMP/recovery.log
+  rm -rf $TMP/sqlite3
+  rm -rf $TMP/updater
+  rm -rf $TMP/zipalign
 }
 
 clean_logs() {
@@ -588,50 +624,58 @@ clean_logs() {
 
 # Generate a separate log file on failed mounting
 on_mount_failed() {
-  rm -rf /sdcard/bitgapps_debug_failed_logs.tar.gz
+  rm -rf $INTERNAL/bitgapps_debug_failed_logs.tar.gz
   rm -rf /cache/bitgapps
   mkdir /cache/bitgapps
   cd /cache/bitgapps
   cp -f $TMP/recovery.log /cache/bitgapps/recovery.log 2>/dev/null;
   cp -f /etc/fstab /cache/bitgapps/fstab 2>/dev/null;
   tar -cz -f "$TMP/bitgapps_debug_failed_logs.tar.gz" *
-  cp -f $TMP/bitgapps_debug_failed_logs.tar.gz /sdcard/bitgapps_debug_failed_logs.tar.gz
+  cp -f $TMP/bitgapps_debug_failed_logs.tar.gz $INTERNAL/bitgapps_debug_failed_logs.tar.gz
   # Checkout log path
   cd /
 }
 
 # Generate a separate log file on abort
 on_install_failed() {
-  rm -rf /sdcard/bitgapps_debug_failed_logs.tar.gz
+  rm -rf $INTERNAL/bitgapps_debug_failed_logs.tar.gz
   rm -rf /cache/bitgapps
   mkdir /cache/bitgapps
   cd /cache/bitgapps
   cp -f $TMP/recovery.log /cache/bitgapps/recovery.log 2>/dev/null;
+  cp -f /etc/fstab /cache/bitgapps/fstab 2>/dev/null;
   cp -f $SYSTEM/build.prop /cache/bitgapps/build.prop 2>/dev/null;
   if [ "$device_vendorpartition" = "true" ]; then
     cp -f $VENDOR/build.prop /cache/bitgapps/build2.prop 2>/dev/null;
   fi;
-  cp -f /system_root/system/etc/prop.default /cache/bitgapps/prop.default 2>/dev/null;
-  cp -f /sdcard/bitgapps-config.prop /cache/bitgapps/bitgapps-config.prop 2>/dev/null;
+  if [ -f $SYSTEM/etc/prop.default ]; then
+    cp -f $SYSTEM/etc/prop.default /cache/bitgapps/prop.default 2>/dev/null;
+  fi;
+  cp -f $INTERNAL/cts-config.prop /cache/bitgapps/cts-config.prop 2>/dev/null;
+  cp -f $INTERNAL/setup-config.prop /cache/bitgapps/setup-config.prop 2>/dev/null;
   tar -cz -f "$TMP/bitgapps_debug_failed_logs.tar.gz" *
-  cp -f $TMP/bitgapps_debug_failed_logs.tar.gz /sdcard/bitgapps_debug_failed_logs.tar.gz
+  cp -f $TMP/bitgapps_debug_failed_logs.tar.gz $INTERNAL/bitgapps_debug_failed_logs.tar.gz
   # Checkout log path
   cd /
 }
 
 # log
 on_install_complete() {
-  rm -rf /sdcard/bitgapps_debug_complete_logs.tar.gz
+  rm -rf $INTERNAL/bitgapps_debug_complete_logs.tar.gz
   cd /cache/bitgapps
   cp -f $TMP/recovery.log /cache/bitgapps/recovery.log 2>/dev/null;
+  cp -f /etc/fstab /cache/bitgapps/fstab 2>/dev/null;
   cp -f $SYSTEM/build.prop /cache/bitgapps/build.prop 2>/dev/null;
   if [ "$device_vendorpartition" = "true" ]; then
     cp -f $VENDOR/build.prop /cache/bitgapps/build2.prop 2>/dev/null;
   fi;
-  cp -f /system_root/system/etc/prop.default /cache/bitgapps/prop.default 2>/dev/null;
-  cp -f /sdcard/bitgapps-config.prop /cache/bitgapps/bitgapps-config.prop 2>/dev/null;
+  if [ -f $SYSTEM/etc/prop.default ]; then
+    cp -f $SYSTEM/etc/prop.default /cache/bitgapps/prop.default 2>/dev/null;
+  fi;
+  cp -f $INTERNAL/cts-config.prop /cache/bitgapps/cts-config.prop 2>/dev/null;
+  cp -f $INTERNAL/setup-config.prop /cache/bitgapps/setup-config.prop 2>/dev/null;
   tar -cz -f "$TMP/bitgapps_debug_complete_logs.tar.gz" *
-  cp -f $TMP/bitgapps_debug_complete_logs.tar.gz /sdcard/bitgapps_debug_complete_logs.tar.gz
+  cp -f $TMP/bitgapps_debug_complete_logs.tar.gz $INTERNAL/bitgapps_debug_complete_logs.tar.gz
   # Checkout log path
   cd /
 }
@@ -697,67 +741,75 @@ print_build_info() {
 }
 
 # Set build defaults
-PKG="BiTGApps"
-VER=""
-ARCH=""
-DATE=""
-ID=""
-VER_SDK=""
-AUTH="TheHitMan @ xda-developers"
+build_info() {
+  PKG="BiTGApps"
+  VER=""
+  ARCH=""
+  DATE=""
+  ID=""
+  VER_SDK=""
+  AUTH="TheHitMan @ xda-developers"
+}
 
 # Set package defaults
-TMP="/tmp";
-ZIP_FILE="/tmp/zip";
-# Create temporary unzip directory
-mkdir /tmp/unzip
-chmod 0755 /tmp/unzip
-# Create temporary outfile directory
-mkdir /tmp/out
-chmod 0755 /tmp/out
-# Create temporary links
-UNZIP_DIR="/tmp/unzip";
-TMP_ADDON="$UNZIP_DIR/tmp_addon";
-TMP_SYS="$UNZIP_DIR/tmp_sys";
-TMP_SYS_ROOT="$UNZIP_DIR/tmp_sys_root";
-TMP_PRIV="$UNZIP_DIR/tmp_priv";
-TMP_PRIV_ROOT="$UNZIP_DIR/tmp_priv_root";
-TMP_PRIV_SETUP="$UNZIP_DIR/tmp_priv_setup";
-TMP_LIB="$UNZIP_DIR/tmp_lib";
-TMP_LIB64="$UNZIP_DIR/tmp_lib64";
-TMP_FRAMEWORK="$UNZIP_DIR/tmp_framework";
-TMP_CONFIG="$UNZIP_DIR/tmp_config";
-TMP_DEFAULT_PERM="$UNZIP_DIR/tmp_default";
-TMP_G_PERM="$UNZIP_DIR/tmp_perm";
-TMP_G_PREF="$UNZIP_DIR/tmp_pref";
-TMP_PERM_ROOT="$UNZIP_DIR/tmp_perm_root";
-# Set logging
-LOG="/cache/bitgapps/installation.log";
-config_log="/cache/bitgapps/config-installation.log";
-restore="/cache/bitgapps/backup-script.log";
-whitelist="/cache/bitgapps/whitelist.log";
-SQLITE_LOG="/cache/bitgapps/sqlite.log";
-SQLITE_TOOL="/tmp/sqlite3";
-ZIPALIGN_LOG="/cache/bitgapps/zipalign.log";
-ZIPALIGN_TOOL="/tmp/zipalign";
-ZIPALIGN_OUTFILE="/tmp/out";
-sdk_v29="/cache/bitgapps/sdk_v29.log";
-sdk_v28="/cache/bitgapps/sdk_v28.log";
-sdk_v27="/cache/bitgapps/sdk_v27.log";
-sdk_v25="/cache/bitgapps/sdk_v25.log";
-LINKER="/cache/bitgapps/lib-symlink.log";
-PARTITION="/cache/bitgapps/vendor.log";
-CTS_PATCH="/cache/bitgapps/cts.log";
-CONFIG="/cache/bitgapps/bitgapps-config.log";
-TARGET_SYSTEM="/cache/bitgapps/cts-system.log";
-TARGET_VENDOR="/cache/bitgapps/cts-vendor.log";
-# CTS defaults
-CTS_DEFAULT_SYSTEM_BUILD_FINGERPRINT="ro.build.fingerprint=";
-CTS_DEFAULT_VENDOR_BUILD_FINGERPRINT="ro.vendor.build.fingerprint=";
-CTS_DEFAULT_VENDOR_BUILD_BOOTIMAGE="ro.bootimage.build.fingerprint=";
-# CTS patch
-CTS_SYSTEM_BUILD_FINGERPRINT="ro.build.fingerprint=google/walleye/walleye:10/QQ1A.200205.002/6084386:user/release-keys";
-CTS_VENDOR_BUILD_FINGERPRINT="ro.vendor.build.fingerprint=google/walleye/walleye:10/QQ1A.200205.002/6084386:user/release-keys";
-CTS_VENDOR_BUILD_BOOTIMAGE="ro.bootimage.build.fingerprint=google/walleye/walleye:10/QQ1A.200205.002/6084386:user/release-keys";
+build_defaults() {
+  # Set temporary zip directory
+  ZIP_FILE="$TMP/zip";
+  # Create temporary unzip directory
+  mkdir $TMP/unzip
+  chmod 0755 $TMP/unzip
+  # Create temporary outfile directory
+  mkdir $TMP/out
+  chmod 0755 $TMP/out
+  # Create temporary links
+  UNZIP_DIR="$TMP/unzip";
+  TMP_ADDON="$UNZIP_DIR/tmp_addon";
+  TMP_SYS="$UNZIP_DIR/tmp_sys";
+  TMP_SYS_ROOT="$UNZIP_DIR/tmp_sys_root";
+  TMP_PRIV="$UNZIP_DIR/tmp_priv";
+  TMP_PRIV_ROOT="$UNZIP_DIR/tmp_priv_root";
+  TMP_PRIV_SETUP="$UNZIP_DIR/tmp_priv_setup";
+  TMP_LIB="$UNZIP_DIR/tmp_lib";
+  TMP_LIB64="$UNZIP_DIR/tmp_lib64";
+  TMP_FRAMEWORK="$UNZIP_DIR/tmp_framework";
+  TMP_CONFIG="$UNZIP_DIR/tmp_config";
+  TMP_DEFAULT_PERM="$UNZIP_DIR/tmp_default";
+  TMP_G_PERM="$UNZIP_DIR/tmp_perm";
+  TMP_G_PREF="$UNZIP_DIR/tmp_pref";
+  TMP_PERM_ROOT="$UNZIP_DIR/tmp_perm_root";
+  # Set logging
+  LOG="/cache/bitgapps/installation.log";
+  config_log="/cache/bitgapps/config-installation.log";
+  restore="/cache/bitgapps/backup-script.log";
+  whitelist="/cache/bitgapps/whitelist.log";
+  SQLITE_LOG="/cache/bitgapps/sqlite.log";
+  SQLITE_TOOL="/tmp/sqlite3";
+  ZIPALIGN_LOG="/cache/bitgapps/zipalign.log";
+  ZIPALIGN_TOOL="/tmp/zipalign";
+  ZIPALIGN_OUTFILE="/tmp/out";
+  sdk_v29="/cache/bitgapps/sdk_v29.log";
+  sdk_v28="/cache/bitgapps/sdk_v28.log";
+  sdk_v27="/cache/bitgapps/sdk_v27.log";
+  sdk_v25="/cache/bitgapps/sdk_v25.log";
+  LINKER="/cache/bitgapps/lib-symlink.log";
+  PARTITION="/cache/bitgapps/vendor.log";
+  CTS_PATCH="/cache/bitgapps/config-cts.log";
+  CONFIG="/cache/bitgapps/config-setupwizard.log";
+  TARGET_SYSTEM="/cache/bitgapps/cts-system.log";
+  TARGET_VENDOR="/cache/bitgapps/cts-vendor.log";
+  # CTS defaults
+  CTS_DEFAULT_SYSTEM_BUILD_FINGERPRINT="ro.build.fingerprint=";
+  CTS_DEFAULT_SYSTEM_BUILD_SEC_PATCH="ro.build.version.security_patch=";
+  CTS_DEFAULT_SYSTEM_BUILD_TYPE="ro.build.type=";
+  CTS_DEFAULT_VENDOR_BUILD_FINGERPRINT="ro.vendor.build.fingerprint=";
+  CTS_DEFAULT_VENDOR_BUILD_BOOTIMAGE="ro.bootimage.build.fingerprint=";
+  # CTS patch
+  CTS_SYSTEM_BUILD_FINGERPRINT="ro.build.fingerprint=google/walleye/walleye:10/QQ1A.200205.002/6084386:user/release-keys";
+  CTS_SYSTEM_BUILD_SEC_PATCH="ro.build.version.security_patch=2020-02-05";
+  CTS_SYSTEM_BUILD_TYPE="ro.build.type=user";
+  CTS_VENDOR_BUILD_FINGERPRINT="ro.vendor.build.fingerprint=google/walleye/walleye:10/QQ1A.200205.002/6084386:user/release-keys";
+  CTS_VENDOR_BUILD_BOOTIMAGE="ro.bootimage.build.fingerprint=google/walleye/walleye:10/QQ1A.200205.002/6084386:user/release-keys";
+}
 
 # Set pathmap
 system_pathmap() {
@@ -915,6 +967,7 @@ pre_installed_v28() {
     rm -rf $SYSTEM_ETC_PREF/preferred-apps
     rm -rf $SYSTEM_ADDOND/90bit_gapps.sh
     rm -rf $SYSTEM/etc/g.prop
+    rm -rf $SYSTEM/xbin/pm.sh
   fi;
 }
 
@@ -1656,7 +1709,7 @@ sdk_v27_install() {
       chcon -h u:object_r:system_file:s0 "$SYSTEM/etc/g.prop";
     }
     # end selinux method
-    
+
     # Create FaceLock lib symlink
     bind_facelock_lib() {
       ln -sfnv $SYSTEM/lib64/libfacenet.so $SYSTEM/app/FaceLock/lib/arm64/libfacenet.so >> $LINKER;
@@ -1897,7 +1950,7 @@ sdk_v25_install() {
       chcon -h u:object_r:system_file:s0 "$SYSTEM/etc/g.prop";
     }
     # end selinux method
-    
+
     # Create FaceLock lib symlink
     bind_facelock_lib() {
       ln -sfnv $SYSTEM/lib64/libfacenet.so $SYSTEM/app/FaceLock/lib/arm64/libfacenet.so >> $LINKER;
@@ -2012,18 +2065,18 @@ unpack_zip_initial() {
   done
 }
 
-# Check whether config file present in device or not
-get_config() {
-  if [ -f /sdcard/bitgapps-config.prop ]; then
-    build_config=true
+# Check whether SetupWizard config file present in device or not
+get_setup_config() {
+  if [ -f $INTERNAL/setup-config.prop ]; then
+    setup_config=true
   else
-    build_config=false
+    setup_config=false
   fi;
 }
 
 # Unpack config dependent packages
 config_install() {
-  if [ "$build_config" = "true" ]; then
+  if [ "$setup_config" = "true" ]; then
     if [ "$supported_setup_config" = "$supported_target" ]; then
       unpack_zip_initial;
 
@@ -2135,6 +2188,15 @@ set_assistant() {
   insert_line $SYSTEM/build.prop "ro.opa.eligible_device=true" after 'net.bt.name=Android' 'ro.opa.eligible_device=true';
 }
 
+# Battery Optimization for GMS Core and its components
+bt_opt() {
+  if [ "$android_sdk" = "$supported_sdk_v28" ]; then
+    cp -f $TMP/pm.sh $SYSTEM/xbin/pm.sh
+    chmod 0755 $SYSTEM/xbin/pm.sh
+    chcon -h u:object_r:system_file:s0 "$SYSTEM/xbin/pm.sh";
+  fi;
+}
+
 # Remove Privileged App Whitelist property with flag enforce
 purge_whitelist_permission() {
   if [ -n "$(cat $SYSTEM/build.prop | grep control_privapp_permissions)" ]; then
@@ -2160,14 +2222,23 @@ purge_whitelist_permission() {
   else
     echo "ERROR: unable to find product 'build.prop'" >> $whitelist;
   fi;
-  if [ -f /system_root/system/etc/prop.default ]; then
-    if [ -n "$(cat /system_root/system/etc/prop.default | grep control_privapp_permissions)" ]; then
-      grep -v "$PROPFLAG" /system_root/system/etc/prop.default > $TMP/prop.default
-      rm -rf /system_root/system/etc/prop.default
-      rm -rf /system_root/default.prop
-      cp -f $TMP/prop.default /system_root/system/etc/prop.default
-      chmod 0644 /system_root/system/etc/prop.default
-      ln -sfnv /system_root/system/etc/prop.default /system_root/default.prop
+  if [ -f $SYSTEM/etc/prop.default ]; then
+    if [ -n "$(cat $SYSTEM/etc/prop.default | grep control_privapp_permissions)" ]; then
+      if [ -f "$SYSTEM_MOUNT/default.prop" ]; then
+        SYMLINK=true
+      else
+        SYMLINK=false
+      fi;
+      grep -v "$PROPFLAG" $SYSTEM/etc/prop.default > $TMP/prop.default
+      rm -rf $SYSTEM/etc/prop.default
+      if [ "$SYMLINK" = "true" ]; then
+        rm -rf $SYSTEM_MOUNT/default.prop
+      fi;
+      cp -f $TMP/prop.default $SYSTEM/etc/prop.default
+      chmod 0644 $SYSTEM/etc/prop.default
+      if [ "$SYMLINK" = "true" ]; then
+        ln -sfnv $SYSTEM/etc/prop.default $SYSTEM_MOUNT/default.prop
+      fi;
       rm -rf $TMP/prop.default
     else
       echo "ERROR: Unable to find Whitelist property in 'system_root'" >> $whitelist;
@@ -2195,18 +2266,6 @@ set_whitelist_permission() {
   insert_line $SYSTEM/build.prop "ro.control_privapp_permissions=disable" after 'net.bt.name=Android' 'ro.control_privapp_permissions=disable';
 }
 
-cts_bakcup_system() {
-  cp -f $SYSTEM/build.prop $SYSTEM/build.prop.bak
-  cp -f $SYSTEM/build.prop.bak /cache/bitgapps/build.prop.bak
-}
-
-cts_bakcup_vendor() {
-  if [ "$device_vendorpartition" = "true" ]; then
-    cp -f $VENDOR/build.prop $VENDOR/build2.prop.bak
-    cp -f $VENDOR/build2.prop.bak /cache/bitgapps/build2.prop.bak
-  fi;
-}
-
 # Apply safetynet patch
 cts_patch_system() {
   # Build fingerprint
@@ -2219,6 +2278,28 @@ cts_patch_system() {
     insert_line $SYSTEM/build.prop "$CTS_SYSTEM_BUILD_FINGERPRINT" after 'ro.build.description=' "$CTS_SYSTEM_BUILD_FINGERPRINT";
   else
     echo "ERROR: Unable to find target property 'ro.build.fingerprint'" >> $TARGET_SYSTEM;
+  fi;
+  # Build security patch
+  if [ -n "$(cat $SYSTEM/build.prop | grep ro.build.version.security_patch)" ]; then
+    grep -v "$CTS_DEFAULT_SYSTEM_BUILD_SEC_PATCH" $SYSTEM/build.prop > $TMP/build.prop
+    rm -rf $SYSTEM/build.prop
+    cp -f $TMP/build.prop $SYSTEM/build.prop
+    chmod 0644 $SYSTEM/build.prop
+    rm -rf $TMP/build.prop
+    insert_line $SYSTEM/build.prop "$CTS_SYSTEM_BUILD_SEC_PATCH" after 'ro.build.version.release=' "$CTS_SYSTEM_BUILD_SEC_PATCH";
+  else
+    echo "ERROR: Unable to find target property 'ro.build.version.security_patch'" >> $TARGET_SYSTEM;
+  fi;
+  # Build type
+  if [ -n "$(cat $SYSTEM/build.prop | grep ro.build.type=userdebug)" ]; then
+    grep -v "$CTS_DEFAULT_SYSTEM_BUILD_TYPE" $SYSTEM/build.prop > $TMP/build.prop
+    rm -rf $SYSTEM/build.prop
+    cp -f $TMP/build.prop $SYSTEM/build.prop
+    chmod 0644 $SYSTEM/build.prop
+    rm -rf $TMP/build.prop
+    insert_line $SYSTEM/build.prop "$CTS_SYSTEM_BUILD_TYPE" after 'ro.build.date.utc=' "$CTS_SYSTEM_BUILD_TYPE";
+  else
+    echo "ERROR: Unable to find target property with type 'userdebug'" >> $TARGET_SYSTEM;
   fi;
 }
 
@@ -2258,16 +2339,23 @@ whitelist_patch() {
   set_whitelist_permission;
 }
 
+# Check whether CTS config file present in device or not
+get_cts_config() {
+  if [ -f $INTERNAL/cts-config.prop ]; then
+    cts_config=true
+  else
+    cts_config=false
+  fi;
+}
+
 # Apply CTS patch function
 cts_patch() {
   # Guard CTS function for samsung device
   if [ "$android_product" = "$supported_product" ]; then
     echo "CTS Patch disabled for Product : $android_product" >> $CTS_PATCH;
   else
-    if [ "$build_config" = "true" ]; then
+    if [ "$cts_config" = "true" ]; then
       if [ "$supported_cts_config" = "$supported_target" ]; then
-        cts_bakcup_system;
-        cts_bakcup_vendor;
         cts_patch_system;
         cts_patch_vendor;
       else
@@ -2283,8 +2371,8 @@ cts_patch() {
 sdk_fix() {
   if [ "$android_sdk" -ge "26" ]; then # Android 8.0+ uses 0600 for its permission on build.prop
     chmod 0600 "$SYSTEM/build.prop"
-    if [ -f /system_root/system/etc/prop.default ]; then
-      chmod 0600 "/system_root/system/etc/prop.default"
+    if [ -f $SYSTEM/etc/prop.default ]; then
+      chmod 0600 "$SYSTEM/etc/prop.default"
     fi;
     if [ -f "$SYSTEM/product/build.prop" ]; then
       chmod 0600 "$SYSTEM/product/build.prop"
@@ -2295,17 +2383,44 @@ sdk_fix() {
   fi;
 }
 
+# SELinux security context
+selinux_fix() {
+  chcon -h u:object_r:system_file:s0 "$SYSTEM/build.prop";
+  if [ -f $SYSTEM/etc/prop.default ]; then
+    chcon -h u:object_r:system_file:s0 "$SYSTEM/etc/prop.default";
+  fi;
+  if [ -f "$SYSTEM/product/build.prop" ]; then
+    chcon -h u:object_r:system_file:s0 "$SYSTEM/product/build.prop";
+  fi;
+  if [ "$device_vendorpartition" = "true" ]; then
+    chcon -h u:object_r:vendor_file:s0 "$VENDOR/build.prop";
+  fi;
+}
+
+# Print config installation
+config_info() {
+  ui_print " ";
+  ui_print "Config Installation";
+  if [ "$setup_config" = "true" ] || [ "$cts_config" = "true" ]; then
+    ui_print "True";
+  else
+    ui_print "False";
+  fi;
+}
+
 ui_print "Mount Partitions";
 
 ui_print " ";
 
 # These set of functions should be executed before any other install function
 function pre_install() {
+  selinux;
   clean_logs;
   logd;
   on_sdk;
   on_platform;
   build_platform;
+  on_partition_check;
   early_mount;
   set_mount;
   mount_part;
@@ -2324,26 +2439,34 @@ function pre_install() {
 }
 pre_install;
 
-# Get the available space left on the device
-size=`df -k $SYSTEM_MOUNT | tail -n 1 | tr -s ' ' | cut -d' ' -f4`
-CAPACITY="200000"
+diskfree() {
+  # Get the available space left on the device
+  size=`df -k $SYSTEM_MOUNT | tail -n 1 | tr -s ' ' | cut -d' ' -f4`
+  CAPACITY="200000"
 
-# Check if the available space is greater than 200MB (200000KB)
-ui_print "Checking System Space";
-if [[ "$size" -gt "$CAPACITY" ]]; then
-  ui_print "$size";
-  ui_print " ";
-else
-  ui_print " ";
-  on_abort "No space left in device. Aborting...";
-  ui_print " ";
-fi;
+  # Disk space in human readable format (k=1024)
+  ds_hr=`df -h $SYSTEM_MOUNT | tail -n 1 | tr -s ' ' | cut -d' ' -f4`
+
+  # Check if the available space is greater than 200MB (200000KB)
+  ui_print "Checking System Space";
+  if [[ "$size" -gt "$CAPACITY" ]]; then
+    ui_print "$ds_hr";
+    ui_print " ";
+  else
+    ui_print " ";
+    on_abort "No space left in device. Aborting...";
+    ui_print "Current space : $ds_hr";
+    ui_print " ";
+  fi;
+}
+diskfree;
 
 ui_print "Installing";
 
 # Do not merge 'pre_install' functions here
 # Begin installation
 function post_install() {
+  build_defaults;
   system_pathmap;
   recovery_actions;
   mk_component;
@@ -2355,22 +2478,28 @@ function post_install() {
   sdk_v28_install;
   sdk_v27_install;
   sdk_v25_install;
-  get_config;
+  on_config_check;
+  get_setup_config;
   config_install;
   set_assistant;
-  on_caf_check;
+  bt_opt;
+  on_whitelist_check;
   whitelist_patch;
   on_product_check;
+  get_cts_config;
   cts_patch;
   sdk_fix;
+  selinux_fix;
   backup_script;
   sqlite_opt;
+  config_info;
   on_installed;
   recovery_cleanup;
 }
 post_install; # end installation
 
 # Do not parse this function
+build_info;
 print_build_info;
 
 # end method

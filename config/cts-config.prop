@@ -1,11 +1,11 @@
 ##############################################################
-# File name       : bitgapps-config.prop
+# File name       : cts-config.prop
 #
-# Description     : Set various installation functions
+# Description     : Install Safetynet patch
 #
 # Build Date      : Tuesday March 03 20:05:36 IST 2020
 #
-# Updated on      : Monday March 16 14:27:38 IST 2020
+# Updated on      : Monday March 30 14:42:24 IST 2020
 #
 # BiTGApps Author : TheHitMan @ xda-developers
 #
@@ -24,8 +24,5 @@
 # GNU General Public License for more details.
 ##############################################################
 
-# Property for installing SetupWizard components
-ro.config.setupwizard=true
-
 # Property for installing safetynet patch
-ro.config.cts=false
+ro.config.cts=true

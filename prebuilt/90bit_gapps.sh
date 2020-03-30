@@ -89,6 +89,7 @@ lib64/libfilterpack_facedetect.so
 lib64/libfrsdk.so  
 lib64/libjni_latinimegoogle.so
 lib64/libsketchology_native.so
+xbin/pm.sh
 EOF
 }
 
